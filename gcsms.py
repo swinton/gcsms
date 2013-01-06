@@ -15,14 +15,24 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+"""Send SMS to your phone for free using Google Calendar."""
+
 from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
+
+__author__ = 'Mansour'
+__copyright__ = 'Copyright (C) 2013 Mansour'
+__credits__ = ['Mansour']
+__email__ = 'mansour@oxplot.com'
+__license__ = 'GPLv3'
+__maintainer__ = 'Mansour'
+__version__ = '1.0'
+
 from datetime import datetime
 import argparse
 import json
 import os
-import re
 import sys
 import time
 
@@ -36,43 +46,37 @@ except ImportError:
     import SafeConfigParser, NoSectionError, NoOptionError
 
 try:
-  from cStringIO import StringIO
-except ImportError:
-  from io import BytesIO as StringIO
-
-try:
-  from urllib2 import urlopen, Request, HTTPError
+  from urllib2 import urlopen, Request
   from urllib import urlencode
 except ImportError:
   from urllib.parse import urlencode
   from urllib.request import urlopen, Request
-  from urllib.error import HTTPError
 
-_progname = 'gcsms'
-_global = 'global'
-_scope = 'https://www.googleapis.com/auth/calendar'
-_dev_code_endpt = 'https://accounts.google.com/o/oauth2/device/code'
-_token_endpt = 'https://accounts.google.com/o/oauth2/token'
-_grant_type = 'http://oauth.net/grant_type/device/1.0'
-_cal_url = 'https://www.googleapis.com/calendar/v3'
-_event_path = '/calendars/%s/events'
-_cal_list_path = '/users/me/calendarList'
-_cals_path = '/calendars'
+_CALS_PATH = '/calendars'
+_CAL_LIST_PATH = '/users/me/calendarList'
+_CAL_URL = 'https://www.googleapis.com/calendar/v3'
+_DEV_CODE_ENDPT = 'https://accounts.google.com/o/oauth2/device/code'
+_EVENT_PATH = '/calendars/%s/events'
+_GLOBAL = 'global'
+_GRANT_TYPE = 'http://oauth.net/grant_type/device/1.0'
+_PROGNAME = 'gcsms'
+_SCOPE = 'https://www.googleapis.com/auth/calendar'
+_TOKEN_ENDPT = 'https://accounts.google.com/o/oauth2/token'
 
 class GCSMSError(Exception):
+  """GCSMS specific exceptions."""
   pass
 
-# Authenticate with Google
-
 def cmd_auth(args, cfg):
+  """Authenticate with Google."""
 
   # Obtain a user code
 
   req = Request(
-    _dev_code_endpt,
+    _DEV_CODE_ENDPT,
     data=urlencode({
-      'client_id': cfg.get(_global, 'client_id'),
-      'scope': _scope
+      'client_id': cfg.get(_GLOBAL, 'client_id'),
+      'scope': _SCOPE
     }).encode('utf8')
   )
   ucres = json.loads(urlopen(req).read().decode('utf8'))
@@ -84,12 +88,12 @@ def cmd_auth(args, cfg):
   # Obtain refresh token by polling token end point
 
   req = Request(
-    _token_endpt,
+    _TOKEN_ENDPT,
     data=urlencode({
-      'client_id': cfg.get(_global, 'client_id'),
-      'client_secret': cfg.get(_global, 'client_secret'),
+      'client_id': cfg.get(_GLOBAL, 'client_id'),
+      'client_secret': cfg.get(_GLOBAL, 'client_secret'),
       'code': ucres['device_code'],
-      'grant_type': _grant_type
+      'grant_type': _GRANT_TYPE
     }).encode('utf8')
   )
 
@@ -108,29 +112,28 @@ def cmd_auth(args, cfg):
 
   # Store the refresh token in the config file
 
-  cfg.set(_global, 'refresh_token', refresh_token)
+  cfg.set(_GLOBAL, 'refresh_token', refresh_token)
   cfg.write(open(args.config + ".tmp", 'w'))
   os.rename(args.config + ".tmp", args.config)
 
   print("Successful. You can now use 'gcsms send' to send SMS")
 
-# Send SMS
-
 def cmd_send(args, cfg):
+  """Send SMS."""
 
   try:
-    refresh_token = cfg.get(_global, 'refresh_token')
+    refresh_token = cfg.get(_GLOBAL, 'refresh_token')
   except NoOptionError:
     raise GCSMSError("you must first run 'gcsms auth' to authenticate")
 
   # Obtain an access token
 
   req = Request(
-    _token_endpt,
+    _TOKEN_ENDPT,
     data=urlencode({
-      'client_id': cfg.get(_global, 'client_id'),
-      'client_secret': cfg.get(_global, 'client_secret'),
-      'refresh_token': cfg.get(_global, 'refresh_token'),
+      'client_id': cfg.get(_GLOBAL, 'client_id'),
+      'client_secret': cfg.get(_GLOBAL, 'client_secret'),
+      'refresh_token': refresh_token,
       'grant_type': 'refresh_token'
     }).encode('utf8')
   )
@@ -143,20 +146,20 @@ def cmd_send(args, cfg):
   # Get a list of all calendars
 
   callist = do_api(
-    '%s?minAccessRole=writer&showHidden=true' % _cal_list_path,
-    access_token, None
+    '%s?minAccessRole=writer&showHidden=true' % _CAL_LIST_PATH,
+    access_token
   )['items']
   cal = None
   for c in callist:
-    if c['summary'] == _progname:
+    if c['summary'] == _PROGNAME:
       cal = c['id']
       break
 
   # If our calendar doesn't exist, create one
 
   if cal is None:
-    cres = do_api(_cals_path, access_token, {'summary': _progname})
-    if cres.get('summary', None) == _progname:
+    cres = do_api(_CALS_PATH, access_token, {'summary': _PROGNAME})
+    if cres.get('summary', None) == _PROGNAME:
       cal = cres['id']
     else:
       raise GCSMSError('cannot create calendar')
@@ -184,13 +187,21 @@ def cmd_send(args, cfg):
     'transparency': 'transparent'
   }
 
-  cres = do_api(_event_path % cal, access_token, event)
+  cres = do_api(_EVENT_PATH % cal, access_token, event)
   if cres.get('kind', None) != 'calendar#event':
     raise GCSMSError('failed to send SMS')
   
-def do_api(path, auth, body):
+def do_api(path, auth, body = None):
+  """Do a calendar API call.
+
+  path -- access URL path
+  auth -- access token
+  body -- JSON request body
+
+  """
+
   req = Request(
-    '%s%s' % (_cal_url, path),
+    '%s%s' % (_CAL_URL, path),
     data=json.dumps(body).encode('utf8') if body else None,
     headers={
       'Authorization': 'Bearer %s' % auth,
@@ -200,6 +211,7 @@ def do_api(path, auth, body):
   return json.loads(urlopen(req).read().decode('utf8'))
 
 def main():
+  """Parse command line args and run appropriate command."""
 
   parser = argparse.ArgumentParser(
     formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -234,8 +246,8 @@ def main():
       raise GCSMSError("config file doesn't exist")
 
     try:
-      cfg.get(_global, 'client_id')
-      cfg.get(_global, 'client_secret')
+      cfg.get(_GLOBAL, 'client_id')
+      cfg.get(_GLOBAL, 'client_secret')
     except (NoOptionError, NoSectionError):
       raise GCSMSError(
         '"client_id" and/or "client_secret" is missing in config')
@@ -246,10 +258,10 @@ def main():
       cmd_send(args, cfg)
 
   except GCSMSError as e:
-    print('%s: error: %s' % (_progname, e.args[0]), file=sys.stderr)
+    print('%s: error: %s' % (_PROGNAME, e.args[0]), file=sys.stderr)
     exit(2)
   except KeyboardInterrupt:
-    print('%s: keyboard interrupt' % _progname)
+    print('%s: keyboard interrupt' % _PROGNAME)
     exit(2)
 
 if __name__ == '__main__':
