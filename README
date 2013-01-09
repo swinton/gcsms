@@ -10,8 +10,8 @@ using gcsms to send SMS:
 3. In API Console (https://code.google.com/apis/console), under
    Services, enable 'Calendar API'.
 4. In API Console, under 'API Access', create a new
-   'Client ID for installed applications' and note down the 'Client ID'
-   and 'Client Secret'.
+   'Client ID for installed applications' with application type of
+   'other' and note down the 'Client ID' and 'Client Secret'.
 5. Edit '~/.gcsms' and enter the 'Client ID' and 'Client Secret' and
    save - see sample.config for the format of the config file
 6. Run 'python gcsms.py auth' and follow the instructions, granting
