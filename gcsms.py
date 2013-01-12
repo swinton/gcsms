@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# gcsms.py - Send SMS to your phone for free using Google Calendar
+# gcsms.py - Send SMS for free using Google Calendar
 # Copyright (C) 2013  Mansour <mansour@oxplot.com>
 #
 # This program is free software: you can redistribute it and/or modify
@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Send SMS to your phone for free using Google Calendar."""
+"""Send SMS for free using Google Calendar."""
 
 from __future__ import division
 from __future__ import print_function
@@ -27,7 +27,7 @@ __credits__ = ['Mansour']
 __email__ = 'mansour@oxplot.com'
 __license__ = 'GPLv3'
 __maintainer__ = 'Mansour'
-__version__ = '1.0'
+__version__ = '2.0'
 
 from datetime import datetime
 import argparse
@@ -63,8 +63,22 @@ _PROGNAME = 'gcsms'
 _SCOPE = 'https://www.googleapis.com/auth/calendar'
 _TOKEN_ENDPT = 'https://accounts.google.com/o/oauth2/token'
 
+class GCSMS(object):
+
+  def __init__(self, client_id = '', client_secret = '',
+               access_token = ''):
+    self._client_id = client_id
+    self._client_secret = client_secret
+    self._access_token = access_token
+
+  def get_user_code(self):
+    pass
+
 class GCSMSError(Exception):
   """GCSMS specific exceptions."""
+  pass
+
+class MultipleMatch(GCSMSError):
   pass
 
 def cmd_auth(args, cfg):
@@ -141,7 +155,6 @@ def cmd_send(args, cfg):
   access_token = tres.get('access_token', None)
   if access_token is None:
     raise GCSMSError("you must first run 'gcsms auth' to authenticate")
-  
 
   # Get a list of all calendars
 
@@ -214,56 +227,208 @@ def do_api(path, auth, body = None):
 def main():
   """Parse command line args and run appropriate command."""
 
+  def add_idname(p):
+    p.add_argument(
+      'idname',
+      metavar='ID/NAME',
+      type=unicode,
+      help='id or name of the messaging list'
+    )
+
   parser = argparse.ArgumentParser(
     formatter_class=argparse.RawDescriptionHelpFormatter,
-    description='Send SMS to yourself with Google Calendar'
+    description='Send SMS for free using Google Calendar'
   )
   parser.add_argument(
     '-c', '--config',
     default=os.path.expanduser('~/.gcsms'),
-    metavar='<config>',
+    metavar='FILE',
     help='path to config file - default is ~/.gcsms'
   )
   subparsers = parser.add_subparsers(
-    help='gcsms commands',
-    dest='command'
+    title='main commands',
+    dest='cmd'
   )
+
   parser_a = subparsers.add_parser(
     'auth',
     help='authenticate with Google'
   )
+
+  parser_a = subparsers.add_parser(
+    'join',
+    help='join a messaging list'
+  )
+  parser_a.add_argument(
+    'id',
+    metavar='ID',
+    type=unicode,
+    help='id of the messaging list'
+  )
+
+  parser_a = subparsers.add_parser(
+    'leave',
+    help='leave a messaging list'
+  )
+  add_idname(parser_a)
+
+  parser_a = subparsers.add_parser(
+    'create',
+    help='create a new messaging list and return its id'
+  )
+  parser_a.add_argument(
+    'name',
+    metavar='NAME',
+    type=unicode,
+    help='name of the new messaging list'
+  )
+
+  parser_a = subparsers.add_parser(
+    'info',
+    help='get info about a messaging list'
+  )
+  add_idname(parser_a)
+
+  parser_a = subparsers.add_parser(
+    'rm',
+    help='delete a messaging list'
+  )
+  parser_a.add_argument(
+    'id',
+    metavar='ID',
+    type=unicode,
+    help='id of the messaging list'
+  )
+
+  parser_a = subparsers.add_parser(
+    'mute',
+    help='stop receiving SMS from messaging list'
+  )
+  add_idname(parser_a)
+
+  parser_a = subparsers.add_parser(
+    'unmute',
+    help='start receiving SMS from messaging list'
+  )
+  add_idname(parser_a)
+
+  parser_a = subparsers.add_parser(
+    'ls',
+    help='list all messaging list subscribed to'
+  )
+  parser_a.add_argument(
+    '-l', '--long',
+    action='store_true',
+    help='show access and other details'
+  )
+  parser_a.add_argument(
+    '--id',
+    action='store_true',
+    help='show ids'
+  )
+
   parser_a = subparsers.add_parser(
     'send',
-    help='send SMS'
+    help='send an SMS to messaging list'
   )
+  add_idname(parser_a)
+  parser_a.add_argument(
+    'msg',
+    metavar='MSG',
+    nargs='?',
+    default=None,
+    type=unicode,
+    help='SMS message to send - if not specified, read from stdin'
+  )
+  parser_a.add_argument(
+    '-d', '--delay',
+    metavar='N',
+    default=0,
+    type=int,
+    help='delay delivery by N seconds - default is no delay'
+  )
+
+  parser_a = subparsers.add_parser(
+    'acl-add',
+    help='grant user/domain access to messaging list'
+  )
+  add_idname(parser_a)
+  parser_a.add_argument(
+    'address',
+    metavar='ADDRESS',
+    type=unicode,
+    help='address of user/domain'
+  )
+  parser_a.add_argument(
+    'access',
+    metavar='ACCESS',
+    choices=['read', 'write', 'owner'],
+    type=unicode,
+    help='access level - one of read, write, owner'
+  )
+
+  parser_a = subparsers.add_parser(
+    'acl-rm',
+    help='revoke user/domain access to messaging list'
+  )
+  add_idname(parser_a)
+  parser_a.add_argument(
+    'address',
+    metavar='ADDRESS',
+    type=unicode,
+    help='address of user/domain'
+  )
+
+  parser_a = subparsers.add_parser(
+    'acl-clear',
+    help='clear the access list of messaging list'
+  )
+  add_idname(parser_a)
+
+  parser_a = subparsers.add_parser(
+    'acl-ls',
+    help='list all users/domains granted access to messaging list'
+  )
+  add_idname(parser_a)
+
   args = parser.parse_args()
 
   try:
 
-    cfg = SafeConfigParser()
-    if os.path.exists(args.config):
-      cfg.read(args.config)
-    else:
-      raise GCSMSError("config file doesn't exist")
+    cfg = _load_config(args.config)
 
-    try:
-      cfg.get(_GLOBAL, 'client_id')
-      cfg.get(_GLOBAL, 'client_secret')
-    except (NoOptionError, NoSectionError):
-      raise GCSMSError(
-        '"client_id" and/or "client_secret" is missing in config')
+    # TODO commands
 
-    if args.command == 'auth':
-      cmd_auth(args, cfg)
-    elif args.command == 'send':
-      cmd_send(args, cfg)
-
+  except MultipleMatch as e:
+    print('%s: multiple messaging lists matched - use id' % _PROGNAME,
+          file=sys.stderr)
+    for mlid in e.args[0]:
+      print('  ' + mlid, file=sys.stderr)
+    exit(1)
   except GCSMSError as e:
     print('%s: error: %s' % (_PROGNAME, e.args[0]), file=sys.stderr)
-    exit(2)
+    exit(1)
   except KeyboardInterrupt:
     print('%s: keyboard interrupt' % _PROGNAME)
-    exit(2)
+    exit(1)
+
+def _load_config(path):
+  """Load the configuration file."""
+
+  cfg = SafeConfigParser()
+  if os.path.exists(path):
+    cfg.read(path)
+  else:
+    raise GCSMSError("config file doesn't exist")
+
+  try:
+    cfg.get(_GLOBAL, 'client_id')
+    cfg.get(_GLOBAL, 'client_secret')
+  except (NoOptionError, NoSectionError):
+    raise GCSMSError(
+      '"client_id" and/or "client_secret" is missing in config')
+
+  return cfg
 
 if __name__ == '__main__':
   main()
