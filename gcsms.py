@@ -146,7 +146,8 @@ def cmd_send(args, cfg):
   # Get a list of all calendars
 
   callist = do_api(
-    '%s?minAccessRole=writer&showHidden=true' % _CAL_LIST_PATH,
+    '%s?maxResults=100000&minAccessRole=writer'
+    '&fields=items(id%%2Csummary)&showHidden=true' % _CAL_LIST_PATH,
     access_token
   )['items']
   cal = None
