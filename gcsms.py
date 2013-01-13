@@ -29,6 +29,33 @@ __license__ = 'GPLv3'
 __maintainer__ = 'Mansour'
 __version__ = '2.0'
 
+########################################################################
+# DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG
+########################################################################
+
+import ssl
+realssl = ssl.SSLSocket
+
+class SSLSocketDebugger(realssl):
+  def __init__(self, *args, **kwargs):
+    realssl.__init__(self, *args, **kwargs)
+
+  def send(self, *args, **kwargs):
+    data = kwargs.get('data', None) or args[0]
+    sys.stderr.write(data)
+    return realssl.send(self, *args, **kwargs)
+
+  def read(self, *args, **kwargs):
+    data = realssl.read(self, *args, **kwargs)
+    sys.stderr.write(data)
+    return data
+
+#ssl.SSLSocket = SSLSocketDebugger #uncomment to see SSL traffic
+
+########################################################################
+# END OF DEBUG
+########################################################################
+
 from datetime import datetime
 import argparse
 import json
@@ -46,33 +73,278 @@ except ImportError:
     import SafeConfigParser, NoSectionError, NoOptionError
 
 try:
-  from urllib2 import urlopen, Request
+  from urllib2 import urlopen, Request as _Request, HTTPError
   from urllib import urlencode
 except ImportError:
   from urllib.parse import urlencode
-  from urllib.request import urlopen, Request
+  from urllib.request import urlopen, Request as _Request
+  from urllib.error import HTTPError
 
-_CALS_PATH = '/calendars'
-_CAL_LIST_PATH = '/users/me/calendarList'
-_CAL_URL = 'https://www.googleapis.com/calendar/v3'
-_DEV_CODE_ENDPT = 'https://accounts.google.com/o/oauth2/device/code'
-_EVENT_PATH = '/calendars/%s/events'
 _GLOBAL = 'global'
-_GRANT_TYPE = 'http://oauth.net/grant_type/device/1.0'
 _PROGNAME = 'gcsms'
+_MLNAME_PREFIX = _PROGNAME + ':'
+
+_BASE_URL = 'https://www.googleapis.com/calendar/v3'
+_DEV_CODE_ENDPT = 'https://accounts.google.com/o/oauth2/device/code'
+_GRANT_TYPE = 'http://oauth.net/grant_type/device/1.0'
 _SCOPE = 'https://www.googleapis.com/auth/calendar'
 _TOKEN_ENDPT = 'https://accounts.google.com/o/oauth2/token'
+_PATHS = {
+  'cl': '/users/me/calendarList',
+  'cl-id': '/users/me/calendarList/%s',
+  'events': '/calendars/%s/events',
+  'cal': '/calendars',
+  'cal-id': '/calendars/%s',
+  'acl': '/calendars/%s/acl',
+  'TODO': 'TODO'
+}
+
+def _urlencval(val):
+  return urlencode({'a': val})[2:]
+
+def _url(urltype):
+  return _BASE_URL + _PATHS[urltype]
+
+def _to_vid(mlid):
+  return ':' + mlid
+
+def idname_arg(idname):
+  if idname.startswith(':'):
+    if len(idname) < 2:
+      raise argparse.ArgumentTypeError(
+        "'%s' is not a valid id" % idname)
+    return ('id', idname[1:])
+  else:
+    return ('name', idname)
+
+def id_arg(s):
+  if len(s) < 2 or not s.startswith(':'):
+    raise argparse.ArgumentTypeError(
+      "'%s' is not an id - must start with ':'" % s)
+  return s[1:]
+
+class Request(_Request):
+  """Request with HTTP method as configurable property.
+
+  From: http://stackoverflow.com/a/6312600/319954
+
+  """
+
+  def __init__(self, *args, **kwargs):
+    self._method = kwargs.pop('method', None)
+    _Request.__init__(self, *args, **kwargs)
+
+  def get_method(self):
+    return self._method if self._method \
+      else _Request.get_method(self)
 
 class GCSMS(object):
 
   def __init__(self, client_id = '', client_secret = '',
                access_token = ''):
-    self._client_id = client_id
-    self._client_secret = client_secret
-    self._access_token = access_token
+    self.client_id = client_id
+    self.client_secret = client_secret
+    self.access_token = access_token
 
-  def get_user_code(self):
-    pass
+  def obtain_user_code(self):
+    req = Request(
+      _DEV_CODE_ENDPT,
+      data=urlencode({
+        'client_id': self.client_id,
+        'scope': _SCOPE
+      }).encode('utf8')
+    )
+    return json.loads(urlopen(req).read().decode('utf8'))
+
+  def obtain_refresh_token(self, dev_code):
+    req = Request(
+      _TOKEN_ENDPT,
+      data=urlencode({
+        'client_id': self.client_id,
+        'client_secret': self.client_secret,
+        'code': dev_code,
+        'grant_type': _GRANT_TYPE
+      }).encode('utf8')
+    )
+    rtres = json.loads(urlopen(req).read().decode('utf8'))
+    error = rtres.get('error', None)
+    refresh_token = rtres.get('refresh_token', None)
+    if error in ('slow_down', 'authorization_pending'):
+      raise AuthPending()
+    elif error:
+      raise GCSMSError("got auth error '%s'" % error)
+    elif refresh_token:
+      return refresh_token
+    else:
+      # XXX need a better error reporting here
+      raise GCSMSError('unexpected error')
+
+  def obtain_access_token(self, refresh_token):
+    req = Request(
+      _TOKEN_ENDPT,
+      data=urlencode({
+        'client_id': self.client_id,
+        'client_secret': self.client_secret,
+        'refresh_token': refresh_token,
+        'grant_type': 'refresh_token'
+      }).encode('utf8')
+    )
+    tres = json.loads(urlopen(req).read().decode('utf8'))
+    access_token = tres.get('access_token', None)
+    if access_token is None:
+      raise GCSMSError("cannot get access token - try reauthenticating")
+    return access_token
+
+  def create(self, name):
+    mlid = self._call_api(
+      _url('cal') + '?fields=id',
+      method='POST',
+      body={
+        'summary': _MLNAME_PREFIX + name
+      }
+    )['id']
+    self._call_api(
+      _url('cl-id') % _urlencval(mlid),
+      method='PATCH',
+      body={
+        'hidden': True,
+        'selected': False,
+        'defaultReminders': [],
+        'summaryOverride': _MLNAME_PREFIX + name
+      }
+    )
+    return mlid
+
+  def join(self, mlid, name = None):
+    self._call_api(
+      _url('cl') + '?fields=id',
+      method='POST',
+      body={'id': mlid}
+    )
+
+    if name is not None:
+      overridename = _MLNAME_PREFIX + name
+    else:
+      cl = self._call_api(
+        (_url('cl-id') % _urlencval(mlid)) + '?fields=summary'
+      )
+      if cl['summary'].startswith(_MLNAME_PREFIX):
+        overridename = cl['summary'][len(_MLNAME_PREFIX):]
+      else:
+        overridename = _MLNAME_PREFIX + cl['summary']
+    
+    self._call_api(
+      (_url('cl-id') % _urlencval(mlid)) + '?fields=id',
+      method='PUT',
+      body={
+        'hidden': True,
+        'selected': False,
+        'defaultReminders': [],
+        'summaryOverride': overridename.strip()
+      }
+    )
+
+    return overridename
+
+  def leave(self, mlid):
+    self._call_api(_url('cl-id') % _urlencval(mlid), method='DELETE')
+
+  def destroy(self, mlid):
+    self._call_api(_url('cal-id') % _urlencval(mlid), method='DELETE')
+
+  def send(self, mlid, msg, delay = 0):
+
+    try:
+      ts = datetime.utcfromtimestamp(
+        time.time() + 65 + delay).isoformat(b'T') + 'Z'
+    except TypeError:
+      ts = datetime.utcfromtimestamp(
+        time.time() + 65 + delay).isoformat('T') + 'Z'
+
+    self._call_api(
+      _url('events') % _urlencval(mlid),
+      method='POST',
+      body={
+        'start': {'dateTime': ts},
+        'end': {'dateTime': ts},
+        'summary': msg,
+        'transparency': 'transparent'
+      }
+    )
+
+  def rename(self, mlid, newname):
+    self._call_api(
+      _url('cl-id') % _urlencval(mlid),
+      method='PATCH',
+      body={
+        'summaryOverride': _MLNAME_PREFIX + newname
+      }
+    )
+
+  def mlists(self):
+    items = self._call_api(
+      _url('cl') +
+      '?minAccessRole=reader&maxResults=1000000&showHidden=True'
+      '&fields=items(accessRole,defaultReminders,id,summaryOverride)'
+    )['items']
+
+    items = filter(
+      lambda x: x.get('summaryOverride', '').startswith(_MLNAME_PREFIX),
+      items
+    )
+
+    return map(lambda x: {
+      'id': x['id'],
+      'name': x['summaryOverride'][len(_MLNAME_PREFIX):].strip(),
+      'access': x['accessRole'],
+      'muted': {'method': 'sms', 'minutes': 1} not in
+               x.get('defaultReminders', [])
+    }, items)
+
+  def mute(self, mlid, mute = True):
+    self._call_api(
+      _url('cl-id') % _urlencval(mlid),
+      method='PATCH',
+      body={
+        'defaultReminders':
+          [] if mute else [{'method': 'sms', 'minutes': 1}]
+      }
+    )
+
+  def acl(self, mlid):
+    res = self._call_api(
+      (_url('acl') % _urlencval(mlid))
+        + '?items(id,role,scope)&maxResults=1000000'
+    )['items']
+    return map(lambda x: {
+      'address': x['scope']['value'],
+      'id': x['id'],
+      'access': x['role']
+    }, res)
+
+  def _call_api(self, url, method = 'GET', body = None):
+    """Make a calendar API call.
+
+    urltype -- access URL type
+    body -- JSON request body
+
+    """
+
+    req = Request(
+      url,
+      method=method,
+      data=json.dumps(body).encode('utf8') if body else None,
+      headers={
+        'X-HTTP-Method-Override': method,
+        'Authorization': 'Bearer %s' % self.access_token,
+        'Content-type': 'application/json'
+      }
+    )
+    response = urlopen(req).read().decode('utf8')
+    if method == 'DELETE':
+      return None
+    else:
+      return json.loads(response)
 
 class GCSMSError(Exception):
   """GCSMS specific exceptions."""
@@ -81,48 +353,104 @@ class GCSMSError(Exception):
 class MultipleMatch(GCSMSError):
   pass
 
-def cmd_auth(args, cfg):
+class AuthPending(GCSMSError):
+  pass
+
+def _cmd_create(args, cfg, inst):
+  mlid = inst.create(args.name)
+  print(_to_vid(mlid))
+
+def _cmd_join(args, cfg, inst):
+  name = inst.join(args.id, args.name)
+
+def _cmd_ls(args, cfg, inst):
+  mls = list(inst.mlists())
+  mls.sort(cmp=lambda x,y: cmp(x['name'].lower(), y['name'].lower()))
+  for ml in mls:
+    mlid = '  ' + _to_vid(ml['id']) if args.long else ''
+    access, name = '', ml['name']
+    if args.long:
+      access = {
+        'reader': 'r--',
+        'writer': 'rw-',
+        'owner': 'rwo'
+      }[ml['access']] + ('m' if ml['muted'] else '-') + '  '
+    print('%s%s%s' % (access, name, mlid))
+
+def _cmd_mute(args, cfg, inst):
+  mlid = _get_id_for_idname(inst, args.idname)
+  inst.mute(mlid, True)
+
+def _cmd_unmute(args, cfg, inst):
+  mlid = _get_id_for_idname(inst, args.idname)
+  inst.mute(mlid, False)
+
+def _cmd_leave(args, cfg, inst):
+  mlid = _get_id_for_idname(inst, args.idname)
+  inst.leave(mlid)
+
+def _cmd_rm(args, cfg, inst):
+  inst.destroy(args.id)
+
+def _cmd_send(args, cfg, inst):
+  mlid = _get_id_for_idname(inst, args.idname)
+  msg = sys.stdin.read() if args.msg is None else args.msg
+  inst.send(mlid, msg, delay=args.delay)
+
+def _cmd_rename(args, cfg, inst):
+  mlid = _get_id_for_idname(inst, args.idname)
+  inst.rename(mlid, args.newname)
+
+def _cmd_log(args, cfg, inst):
+  raise GCSMSError('NOT IMPLEMENTED YET')
+
+def _cmd_acl_ls(args, cfg, inst):
+  mlid = _get_id_for_idname(inst, args.idname)
+  acl = inst.acl(mlid)
+  for aclitem in acl:
+    access = {
+      'none': '---',
+      'freeBusyReader': '---',
+      'reader': 'r--',
+      'writer': 'rw-',
+      'owner': 'rwo'
+    }[aclitem['access']]
+    print('%s  %s' % (access, aclitem['address']))
+
+def _cmd_acl_add(args, cfg, inst):
+  raise GCSMSError('NOT IMPLEMENTED YET')
+
+def _cmd_acl_rm(args, cfg, inst):
+  raise GCSMSError('NOT IMPLEMENTED YET')
+
+def _get_id_for_idname(inst, idname):
+  t, v = idname
+  if t == 'id':
+    return idname
+  mls = filter(lambda x: x['name'].lower() == v.lower(), inst.mlists())
+  if len(mls) == 0:
+    raise GCSMSError("no messaging lists matched name '%s'" % v)
+  elif len(mls) > 1:
+    raise MultipleMatch(map(lambda x: x['id'], mls))
+  else:
+    return mls[0]['id']
+
+def _cmd_auth(args, cfg, inst):
   """Authenticate with Google."""
 
-  # Obtain a user code
-
-  req = Request(
-    _DEV_CODE_ENDPT,
-    data=urlencode({
-      'client_id': cfg.get(_GLOBAL, 'client_id'),
-      'scope': _SCOPE
-    }).encode('utf8')
-  )
-  ucres = json.loads(urlopen(req).read().decode('utf8'))
+  ucres = inst.obtain_user_code()
 
   print("Visit %s\nand enter the code '%s'\n"
         "Waiting for you to grant access ..."
         % (ucres['verification_url'], ucres['user_code']))
 
-  # Obtain refresh token by polling token end point
-
-  req = Request(
-    _TOKEN_ENDPT,
-    data=urlencode({
-      'client_id': cfg.get(_GLOBAL, 'client_id'),
-      'client_secret': cfg.get(_GLOBAL, 'client_secret'),
-      'code': ucres['device_code'],
-      'grant_type': _GRANT_TYPE
-    }).encode('utf8')
-  )
-
   while True:
-    rtres = json.loads(urlopen(req).read().decode('utf8'))
-    error = rtres.get('error', None)
-    refresh_token = rtres.get('refresh_token', None)
-    if error in ('slow_down', 'authorization_pending'):
+    try:
+      refresh_token = inst.obtain_refresh_token(ucres['device_code'])
+    except AuthPending as e:
       time.sleep(int(ucres['interval']))
-    elif error:
-      raise GCSMSError("got auth error '%s' while polling" % error)
-    elif refresh_token:
-      break
     else:
-      raise GCSMSError('unexpected error while polling')
+      break
 
   # Store the refresh token in the config file
 
@@ -130,99 +458,7 @@ def cmd_auth(args, cfg):
   cfg.write(open(args.config + ".tmp", 'w'))
   os.rename(args.config + ".tmp", args.config)
 
-  print("Successful. You can now use 'gcsms send' to send SMS")
-
-def cmd_send(args, cfg):
-  """Send SMS."""
-
-  try:
-    refresh_token = cfg.get(_GLOBAL, 'refresh_token')
-  except NoOptionError:
-    raise GCSMSError("you must first run 'gcsms auth' to authenticate")
-
-  # Obtain an access token
-
-  req = Request(
-    _TOKEN_ENDPT,
-    data=urlencode({
-      'client_id': cfg.get(_GLOBAL, 'client_id'),
-      'client_secret': cfg.get(_GLOBAL, 'client_secret'),
-      'refresh_token': refresh_token,
-      'grant_type': 'refresh_token'
-    }).encode('utf8')
-  )
-  tres = json.loads(urlopen(req).read().decode('utf8'))
-  access_token = tres.get('access_token', None)
-  if access_token is None:
-    raise GCSMSError("you must first run 'gcsms auth' to authenticate")
-
-  # Get a list of all calendars
-
-  callist = do_api(
-    '%s?maxResults=100000&minAccessRole=writer'
-    '&fields=items(id%%2Csummary)&showHidden=true' % _CAL_LIST_PATH,
-    access_token
-  )['items']
-  cal = None
-  for c in callist:
-    if c['summary'] == _PROGNAME:
-      cal = c['id']
-      break
-
-  # If our calendar doesn't exist, create one
-
-  if cal is None:
-    cres = do_api(_CALS_PATH, access_token, {'summary': _PROGNAME})
-    if cres.get('summary', None) == _PROGNAME:
-      cal = cres['id']
-    else:
-      raise GCSMSError('cannot create calendar')
-
-  # Read the stdin and create a calendar event out of it
-
-  text = sys.stdin.read()
-  try:
-    ts = datetime.utcfromtimestamp(
-      time.time() + 65).isoformat(b'T') + 'Z'
-  except TypeError:
-    ts = datetime.utcfromtimestamp(
-      time.time() + 65).isoformat('T') + 'Z'
-  event = {
-    'start': {'dateTime': ts},
-    'end': {'dateTime': ts},
-    'reminders': {
-      'useDefault': False,
-      'overrides': [
-        {'method': 'sms', 'minutes': 1}
-      ]
-    },
-    'summary': text,
-    'visibility': 'private',
-    'transparency': 'transparent'
-  }
-
-  cres = do_api(_EVENT_PATH % cal, access_token, event)
-  if cres.get('kind', None) != 'calendar#event':
-    raise GCSMSError('failed to send SMS')
-  
-def do_api(path, auth, body = None):
-  """Do a calendar API call.
-
-  path -- access URL path
-  auth -- access token
-  body -- JSON request body
-
-  """
-
-  req = Request(
-    '%s%s' % (_CAL_URL, path),
-    data=json.dumps(body).encode('utf8') if body else None,
-    headers={
-      'Authorization': 'Bearer %s' % auth,
-      'Content-type': 'application/json'
-    }
-  )
-  return json.loads(urlopen(req).read().decode('utf8'))
+  print("Successful.")
 
 def main():
   """Parse command line args and run appropriate command."""
@@ -231,7 +467,7 @@ def main():
     p.add_argument(
       'idname',
       metavar='ID/NAME',
-      type=unicode,
+      type=idname_arg,
       help='id or name of the messaging list'
     )
 
@@ -262,8 +498,16 @@ def main():
   parser_a.add_argument(
     'id',
     metavar='ID',
-    type=unicode,
+    type=id_arg,
     help='id of the messaging list'
+  )
+  parser_a.add_argument(
+    'name',
+    metavar='NAME',
+    nargs='?',
+    default=None,
+    type=unicode,
+    help='name under which to add this messaging list'
   )
 
   parser_a = subparsers.add_parser(
@@ -284,19 +528,13 @@ def main():
   )
 
   parser_a = subparsers.add_parser(
-    'info',
-    help='get info about a messaging list'
-  )
-  add_idname(parser_a)
-
-  parser_a = subparsers.add_parser(
     'rm',
     help='delete a messaging list'
   )
   parser_a.add_argument(
     'id',
     metavar='ID',
-    type=unicode,
+    type=id_arg,
     help='id of the messaging list'
   )
 
@@ -314,17 +552,12 @@ def main():
 
   parser_a = subparsers.add_parser(
     'ls',
-    help='list all messaging list subscribed to'
+    help='list all messaging lists subscribed to'
   )
   parser_a.add_argument(
     '-l', '--long',
     action='store_true',
     help='show access and other details'
-  )
-  parser_a.add_argument(
-    '--id',
-    action='store_true',
-    help='show ids'
   )
 
   parser_a = subparsers.add_parser(
@@ -347,6 +580,24 @@ def main():
     type=int,
     help='delay delivery by N seconds - default is no delay'
   )
+
+  parser_a = subparsers.add_parser(
+    'rename',
+    help='rename a messaging list'
+  )
+  add_idname(parser_a)
+  parser_a.add_argument(
+    'newname',
+    metavar='NAME',
+    type=unicode,
+    help='new name'
+  )
+
+  parser_a = subparsers.add_parser(
+    'log',
+    help='message log'
+  )
+  add_idname(parser_a)
 
   parser_a = subparsers.add_parser(
     'acl-add',
@@ -380,12 +631,6 @@ def main():
   )
 
   parser_a = subparsers.add_parser(
-    'acl-clear',
-    help='clear the access list of messaging list'
-  )
-  add_idname(parser_a)
-
-  parser_a = subparsers.add_parser(
     'acl-ls',
     help='list all users/domains granted access to messaging list'
   )
@@ -397,13 +642,34 @@ def main():
 
     cfg = _load_config(args.config)
 
-    # TODO commands
+    inst = GCSMS(client_id = cfg.get(_GLOBAL, 'client_id'),
+                 client_secret = cfg.get(_GLOBAL, 'client_secret'))
 
+    try:
+
+      # Get access token
+
+      if args.cmd != 'auth':
+        try:
+          refresh_token = cfg.get(_GLOBAL, 'refresh_token')
+        except NoOptionError:
+          raise GCSMSError(
+            "you must first run 'gcsms auth' to authenticate")
+        inst.access_token = inst.obtain_access_token(refresh_token)
+
+      globals()['_cmd_' + args.cmd.replace('-', '_')](args, cfg, inst)
+
+    except HTTPError as e:
+      if e.code == 403:
+        raise GCSMSError("you don't have permission to do that")
+      else:
+        raise e
+    
   except MultipleMatch as e:
     print('%s: multiple messaging lists matched - use id' % _PROGNAME,
           file=sys.stderr)
     for mlid in e.args[0]:
-      print('  ' + mlid, file=sys.stderr)
+      print('  ' + _to_vid(mlid), file=sys.stderr)
     exit(1)
   except GCSMSError as e:
     print('%s: error: %s' % (_PROGNAME, e.args[0]), file=sys.stderr)
