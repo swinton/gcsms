@@ -96,6 +96,7 @@ _PATHS = {
   'cal': '/calendars',
   'cal-id': '/calendars/%s',
   'acl': '/calendars/%s/acl',
+  'acl-id': '/calendars/%s/acl/%s',
   'TODO': 'TODO'
 }
 
@@ -122,6 +123,17 @@ def id_arg(s):
     raise argparse.ArgumentTypeError(
       "'%s' is not an id - must start with ':'" % s)
   return s[1:]
+
+def _ml_not_found(fn):
+  def wrapped_fn(*args, **kwargs):
+    try:
+      return fn(*args, **kwargs)
+    except HTTPError as e:
+      if e.code == 404:
+        raise MessagingListNotFound()
+      else:
+        raise
+  return wrapped_fn
 
 class Request(_Request):
   """Request with HTTP method as configurable property.
@@ -215,6 +227,7 @@ class GCSMS(object):
     )
     return mlid
 
+  @_ml_not_found
   def join(self, mlid, name = None):
     self._call_api(
       _url('cl') + '?fields=id',
@@ -246,12 +259,15 @@ class GCSMS(object):
 
     return overridename
 
+  @_ml_not_found
   def leave(self, mlid):
     self._call_api(_url('cl-id') % _urlencval(mlid), method='DELETE')
 
+  @_ml_not_found
   def destroy(self, mlid):
     self._call_api(_url('cal-id') % _urlencval(mlid), method='DELETE')
 
+  @_ml_not_found
   def send(self, mlid, msg, delay = 0):
 
     try:
@@ -272,6 +288,7 @@ class GCSMS(object):
       }
     )
 
+  @_ml_not_found
   def rename(self, mlid, newname):
     self._call_api(
       _url('cl-id') % _urlencval(mlid),
@@ -301,6 +318,7 @@ class GCSMS(object):
                x.get('defaultReminders', [])
     }, items)
 
+  @_ml_not_found
   def mute(self, mlid, mute = True):
     self._call_api(
       _url('cl-id') % _urlencval(mlid),
@@ -311,16 +329,40 @@ class GCSMS(object):
       }
     )
 
+  @_ml_not_found
   def acl(self, mlid):
     res = self._call_api(
       (_url('acl') % _urlencval(mlid))
         + '?items(id,role,scope)&maxResults=1000000'
     )['items']
     return map(lambda x: {
+      'type': x['scope']['type'],
       'address': x['scope']['value'],
       'id': x['id'],
       'access': x['role']
     }, res)
+
+  @_ml_not_found
+  def aclset(self, mlid, address, addtype, access):
+    scope = {'type': addtype}
+    if addtype != 'default':
+      scope['value'] = address
+    self._call_api(
+      _url('acl') % _urlencval(mlid),
+      method='POST',
+      body={'role': access, 'scope': scope}
+    )
+
+  def aclrm(self, mlid, address, addtype):
+    acl = self.acl(mlid)
+    for aclitem in acl:
+      if (addtype == 'default' and aclitem['type'] == 'default') \
+          or (aclitem['address'] == address):
+        self._call_api(
+          _url('acl-id')
+            % (_urlencval(mlid), _urlencval(aclitem['id'])),
+          method='DELETE'
+        )
 
   def _call_api(self, url, method = 'GET', body = None):
     """Make a calendar API call.
@@ -354,6 +396,9 @@ class MultipleMatch(GCSMSError):
   pass
 
 class AuthPending(GCSMSError):
+  pass
+
+class MessagingListNotFound(GCSMSError):
   pass
 
 def _cmd_create(args, cfg, inst):
@@ -407,6 +452,7 @@ def _cmd_log(args, cfg, inst):
 def _cmd_acl_ls(args, cfg, inst):
   mlid = _get_id_for_idname(inst, args.idname)
   acl = inst.acl(mlid)
+  acl.sort(cmp=lambda x,y: cmp(x['address'], y['address']))
   for aclitem in acl:
     access = {
       'none': '---',
@@ -415,13 +461,28 @@ def _cmd_acl_ls(args, cfg, inst):
       'writer': 'rw-',
       'owner': 'rwo'
     }[aclitem['access']]
-    print('%s  %s' % (access, aclitem['address']))
+    address = '[public]' if aclitem['type'] == 'default' \
+      else aclitem['address']
+    print('%s  %s' % (access, address))
 
-def _cmd_acl_add(args, cfg, inst):
-  raise GCSMSError('NOT IMPLEMENTED YET')
+def _cmd_acl_set(args, cfg, inst):
+  mlid = _get_id_for_idname(inst, args.idname)
+  if args.address == 'public':
+    addtype = 'default'
+    if args.access != 'reader':
+      raise GCSMSError("public can only have 'reader' access")
+  else:
+    addtype = 'user' if '@' in args.address else 'domain'
+  inst.aclset(mlid, args.address, addtype, args.access)
 
 def _cmd_acl_rm(args, cfg, inst):
-  raise GCSMSError('NOT IMPLEMENTED YET')
+  mlid = _get_id_for_idname(inst, args.idname)
+  if args.address == 'public':
+    addtype = 'default'
+  else:
+    addtype = 'user' if '@' in args.address else 'domain'
+  address = '' if args.address == 'public' else args.address
+  acl = inst.aclrm(mlid, address, addtype)
 
 def _get_id_for_idname(inst, idname):
   t, v = idname
@@ -600,8 +661,9 @@ def main():
   add_idname(parser_a)
 
   parser_a = subparsers.add_parser(
-    'acl-add',
-    help='grant user/domain access to messaging list'
+    'acl-set',
+    help="set user/domain access to messaging list - use 'public'"
+         " to set public access"
   )
   add_idname(parser_a)
   parser_a.add_argument(
@@ -613,9 +675,9 @@ def main():
   parser_a.add_argument(
     'access',
     metavar='ACCESS',
-    choices=['read', 'write', 'owner'],
+    choices=['reader', 'writer', 'owner'],
     type=unicode,
-    help='access level - one of read, write, owner'
+    help='access level - one of reader, writer, owner'
   )
 
   parser_a = subparsers.add_parser(
@@ -662,8 +724,12 @@ def main():
     except HTTPError as e:
       if e.code == 403:
         raise GCSMSError("you don't have permission to do that")
+      elif e.code // 100 == 5:
+        raise GCSMSError('server error: %s' % e.reason)
       else:
-        raise e
+        raise
+    except MessagingListNotFound as e:
+      raise GCSMSError('messaging list not found')
     
   except MultipleMatch as e:
     print('%s: multiple messaging lists matched - use id' % _PROGNAME,
