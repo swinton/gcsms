@@ -80,6 +80,11 @@ except ImportError:
   from urllib.request import urlopen, Request as _Request
   from urllib.error import HTTPError
 
+try:
+  unicode = unicode
+except NameError:
+  unicode = str
+
 _GLOBAL = 'global'
 _PROGNAME = 'gcsms'
 _MLNAME_PREFIX = _PROGNAME + ':'
@@ -410,7 +415,7 @@ def _cmd_join(args, cfg, inst):
 
 def _cmd_ls(args, cfg, inst):
   mls = list(inst.mlists())
-  mls.sort(cmp=lambda x,y: cmp(x['name'].lower(), y['name'].lower()))
+  mls.sort(key=lambda x: x['name'].lower())
   for ml in mls:
     mlid = '  ' + _to_vid(ml['id']) if args.long else ''
     access, name = '', ml['name']
@@ -452,7 +457,7 @@ def _cmd_log(args, cfg, inst):
 def _cmd_acl_ls(args, cfg, inst):
   mlid = _get_id_for_idname(inst, args.idname)
   acl = inst.acl(mlid)
-  acl.sort(cmp=lambda x,y: cmp(x['address'], y['address']))
+  acl.sort(key=lambda x: x['address'])
   for aclitem in acl:
     access = {
       'none': '---',
@@ -487,8 +492,9 @@ def _cmd_acl_rm(args, cfg, inst):
 def _get_id_for_idname(inst, idname):
   t, v = idname
   if t == 'id':
-    return idname
+    return v
   mls = filter(lambda x: x['name'].lower() == v.lower(), inst.mlists())
+  mls = list(mls)
   if len(mls) == 0:
     raise GCSMSError("no messaging lists matched name '%s'" % v)
   elif len(mls) > 1:
