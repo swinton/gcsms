@@ -105,8 +105,8 @@ You should receive an SMS shortly after the above command returns. But
 have patience. There might be 5 to 30 seconds delay or sometimes more.
 From time to time, you may receive multiple copies of the same message.
 Unfortunately the promptness of the delivery cannot be controlled and if
-your application requires a more timely delivery, you should consider an
-SMS gateway service like twilio.
+your application requires a more timely delivery, you should consider
+paying for use of an SMS gateway service like twilio.
 
 Scenario B (multiple subscribers)
 ---------------------------------
@@ -174,8 +174,10 @@ Other matters
 We have pretty much covered all the commands. There are few more but you
 can figure them out yourselves. Just run `gcsms -h` to find out more.
 
-There are some caveats to using gcsms:
+Notes:
 
 * Renaming a messaging list using `gcsms rename` only affects the name
   in your list.
+* You can import `gcsms` as a python module and use `GCSMS` class to do
+  anything you can do with the command line program.
 * More to go here ...
