@@ -26,14 +26,14 @@ Sold. How do I do it?
 There are various scenarios in which gcsms can be used. We start with
 the most simple one and build on that.
 
-Scenario A
-----------
+Scenario A (single subscriber)
+------------------------------
 You want to get an SMS every time your website returns a 5xx HTTP code.
 
 You must set up a few things before using gcsms to send SMS:
 
 1. Setup a Google account if you don't already have one
-   https://gmail.com
+   (https://gmail.com).
 2. In Google Calendar (https://calendar.google.com),
    under 'Calendar Settings' -> 'Mobile Setup', enter your mobile number
    and verify it.
@@ -42,9 +42,9 @@ You must set up a few things before using gcsms to send SMS:
 4. In API Console, under 'API Access', create a new
    'Client ID for installed applications' with application type of
    'other' and note down the 'Client ID' and 'Client Secret'.
-5. Edit '~/.gcsms' and enter the 'Client ID' and 'Client Secret' and
-   save - see sample.config for the format of the config file
-6. Run 'python gcsms.py auth' and follow the instructions, granting
+5. Edit `~/.gcsms` and enter the 'Client ID' and 'Client Secret' and
+   save - see `sample.config` for the format of the config file
+6. Run `python gcsms.py auth` and follow the instructions, granting
    calendar access to gcsms.
 
 At this point, you no longer need to use the web interface - everything
@@ -107,3 +107,26 @@ From time to time, you may receive multiple copies of the same message.
 Unfortunately the promptness of the delivery cannot be controlled and if
 your application requires a more timely delivery, you should consider an
 SMS gateway service like twilio.
+
+Scenario B (multiple subscribers)
+---------------------------------
+
+Alice, your business partner would also like to know when the website is
+not feeling well.
+
+First, Alice needs to do the steps to set up her API access (see the six
+steps in scenario A). Next, you need to give her access to your
+messaging list:
+
+    [you]$ gcsms acl-set web-health alice.cooper@veryimp.bizo reader
+
+The above command gives Alice permission to _only_ receive messages.
+
+Alice needs to join your messaging list. She will need its unique ID.
+You can find that out by using `gcsms ls -l`. Once Alice has the ID, she
+can join and subsequently unmute the newly joined messaging list, ready
+to receive SMSes:
+
+    [alice]$ gcsms join :hwernow_235nkjg@group.calendar.google.com
+    [alice]$ gcsms unmute web-health
+
