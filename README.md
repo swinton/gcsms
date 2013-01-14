@@ -33,7 +33,7 @@ You want to get an SMS every time your website returns a 5xx HTTP code.
 You must set up a few things before using gcsms to send SMS:
 
 1. Setup a Google account if you don't already have one
-   - https://gmail.com
+   https://gmail.com
 2. In Google Calendar (https://calendar.google.com),
    under 'Calendar Settings' -> 'Mobile Setup', enter your mobile number
    and verify it.
@@ -68,7 +68,7 @@ That long and ugly output that starts with `:` is the messaging list ID.
 It's unique and is the preferred way of referring to messaging lists
 when using gcsms in other scripts for automation. IDs always start with
 `:`. Also, you can have multiple messaging lists with identical names
-but each will have unique IDs.
+but each will have a unique ID.
 
 You can see a list of all the messaging lists you have joined (which
 includes all the ones you create/own):
@@ -95,7 +95,7 @@ you will not receive any SMSes until you _unmute_ the messaging list:
     $ gcsms ls -l
     rwo-  web-health  :hwernow_235nkjg@group.calendar.google.com
 
-All messaging lists you create or join are muted by default.
+_Note: All messaging lists you create or join are muted by default._
 
 At this stage, you can send yourself a message:
 
