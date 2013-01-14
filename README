@@ -1,6 +1,37 @@
-gcsms allows you to programmatically send SMS to your number for free
-through Google Calendar service. You must set up a few things before
-using gcsms to send SMS:
+WHAT
+==========
+
+gcsms allows you to programmatically send SMS for free to anyone who has
+a Google account. gcsms is written to present Google Calendars as
+messaging lists, something akin to regular mailing lists, where users
+who subscribe receive all the messages sent to the mailing list. In this
+case, anyone who is subscribed to a messaging list will receive SMSes.
+gcsms uses Google Calendar API v3 to create/delete calendars and events.
+Everything that gcsms can do, can also be done through Google Calendar's
+web interface. 
+
+WHY
+==========
+
+Initially, this project came to being to cut on costs of monitoring the
+health of a website by making use of the free SMS notification service
+offered by Google Calendar, instead of using an SMS gateway like twilio
+or tropo. Bells and whistles, such as ability to send to multiple
+recipients was later added in order to create a generic multipurpose
+tool.
+
+HOW
+==========
+
+There are various scenarios in which gcsms can be used. We start with
+the most simple one and build on that later on.
+
+Scenario A
+----------
+You want to get an SMS every time your website returns a 5xx HTTP code.
+
+You must set up a few things before using gcsms to send
+SMS:
 
 1. Setup a Google account if you don't already have one
    - https://gmail.com
