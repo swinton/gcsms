@@ -29,33 +29,6 @@ __license__ = 'GPLv3'
 __maintainer__ = 'Mansour'
 __version__ = '2.0'
 
-########################################################################
-# DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG
-########################################################################
-
-import ssl
-realssl = ssl.SSLSocket
-
-class SSLSocketDebugger(realssl):
-  def __init__(self, *args, **kwargs):
-    realssl.__init__(self, *args, **kwargs)
-
-  def send(self, *args, **kwargs):
-    data = kwargs.get('data', None) or args[0]
-    sys.stderr.write(data)
-    return realssl.send(self, *args, **kwargs)
-
-  def read(self, *args, **kwargs):
-    data = realssl.read(self, *args, **kwargs)
-    sys.stderr.write(data)
-    return data
-
-#ssl.SSLSocket = SSLSocketDebugger #uncomment to see SSL traffic
-
-########################################################################
-# END OF DEBUG
-########################################################################
-
 from datetime import datetime
 import argparse
 import json
@@ -106,15 +79,23 @@ _PATHS = {
 }
 
 def _urlencval(val):
+  """URL encode a single value."""
   return urlencode({'a': val})[2:]
 
 def _url(urltype):
+  """Get the URL path of the type given."""
   return _BASE_URL + _PATHS[urltype]
 
 def _to_vid(mlid):
+  """Convert the messaging list ID to its visual representation."""
   return ':' + mlid
 
 def idname_arg(idname):
+  """Handle ID/NAME command line argument.
+
+  Return: tuple (type, value) where type in ['id', 'name']
+
+  """
   if idname.startswith(':'):
     if len(idname) < 2:
       raise argparse.ArgumentTypeError(
@@ -124,12 +105,14 @@ def idname_arg(idname):
     return ('name', idname)
 
 def id_arg(s):
+  """Handle ID command line argument."""
   if len(s) < 2 or not s.startswith(':'):
     raise argparse.ArgumentTypeError(
       "'%s' is not an id - must start with ':'" % s)
   return s[1:]
 
 def _ml_not_found(fn):
+  """Decorate to show a friendly message for 404 HTTP error."""
   def wrapped_fn(*args, **kwargs):
     try:
       return fn(*args, **kwargs)
@@ -141,7 +124,7 @@ def _ml_not_found(fn):
   return wrapped_fn
 
 class Request(_Request):
-  """Request with HTTP method as configurable property.
+  """Request with HTTP method as a configurable property.
 
   From: http://stackoverflow.com/a/6312600/319954
 

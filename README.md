@@ -174,7 +174,8 @@ Other matters
 We have pretty much covered all the commands. There are few more but you
 can figure them out yourselves. Just run `gcsms -h` to find out more.
 
-There are some caveats to gcsms:
+There are some caveats to using gcsms:
 
 * Renaming a messaging list using `gcsms rename` only affects the name
   in your list.
+* More to go here ...
