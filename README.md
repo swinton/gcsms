@@ -130,3 +130,51 @@ to receive SMSes:
     [alice]$ gcsms join :hwernow_235nkjg@group.calendar.google.com
     [alice]$ gcsms unmute web-health
 
+Now, if you run `gcsms send web-health 'Site down: 502'`, both you and
+Alice will receive an SMS.
+
+A while later, Alice gets annoyed by all the SMSes and wants to stop
+receiving them. She can either `gcsms mute` the messaging list. This
+allows her to easily `unmute` it later. She could also `gcsms leave` the
+messaging list. She can always `join` later provided her access is not
+revoked by you (using `gcsms acl-rm`).
+
+Scenario C (multiple subscribers using web interface)
+-----------------------------------------------------
+
+There are situations where the receivers don't have their API access
+setup or don't have the environment to run gcsms. That is OK. You can
+still use gcsms to send SMS to them. But they need to setup somethings
+manually through the web interface.
+
+As per scenario B, you must give each user access:
+
+    $ gcsms acl-set web-health poor.david@veryimp.bizo reader
+    $ gcsms acl-set web-health poorer.jimmy@veryimp.bizo reader
+
+Now, if David and Jimmy log into their Google account and navigate to
+https://calendar.google.com, they will see a new calendar named
+`gcsms:web-health` added to their list of calendars. All calendars used
+as messaging lists by gcsms are named with a prefix of `gcsms:`. In
+fact, `gcsms ls` will not show you any calendars that doesn't follow
+this convention.
+
+David and Jimmy need to add an 'SMS Event reminder' with exactly '1
+minute' setting. They can do that by going into 'Calendar Settings' >
+'Calendars' > 'gcsms:web-health' > 'Reminders and notifications' tab.
+It is needless to say, they must have already setup their mobile phone
+number and verified it (see steps 1 and 2 in scenario A).
+
+That's it! Like Alice, David and Jimmy will now receive an SMS every
+time you issue `gcsms send web-health`.
+
+Other matters
+=============
+
+We have pretty much covered all the commands. There are few more but you
+can figure them out yourselves. Just run `gcsms -h` to find out more.
+
+There are some caveats to gcsms:
+
+* Renaming a messaging list using `gcsms rename` only affects the name
+  in your list.
