@@ -74,8 +74,7 @@ _PATHS = {
   'cal': '/calendars',
   'cal-id': '/calendars/%s',
   'acl': '/calendars/%s/acl',
-  'acl-id': '/calendars/%s/acl/%s',
-  'TODO': 'TODO'
+  'acl-id': '/calendars/%s/acl/%s'
 }
 
 def _urlencval(val):
@@ -139,14 +138,41 @@ class Request(_Request):
       else _Request.get_method(self)
 
 class GCSMS(object):
+  """High level messaging list API on top of Google Calendar API."""
 
   def __init__(self, client_id = '', client_secret = '',
                access_token = ''):
+    """Initialize an instance of GCSMS.
+
+    client_id -- must be acquired online from Google API Console
+    client_secret -- must be acquired online from Google API Console
+    access_token -- use obtain_access_token() to get access token
+
+    """
     self.client_id = client_id
     self.client_secret = client_secret
     self.access_token = access_token
 
   def obtain_user_code(self):
+    """Get the verification details.
+
+    Return: {
+      "device_code" : "6/asdgahdaifushdfiaublajKLFg3y",
+      "user_code" : "a798sfac",
+      "verification_url" : "http://www.google.com/device",
+      "expires_in" : 1800,
+      "interval" : 5
+    }
+
+    User should be directed to 'verification_url' and asked to enter the
+    'user_code'. Meanwhile, obtain_refresh_token() should be called
+    in 'interval' seconds to check if the user has granted access. As
+    soon as the user does, obtain_refresh_token() will return the
+    refresh token which can be used repeatedly to obtain access token,
+    using obtain_access_token().
+
+    """
+
     req = Request(
       _DEV_CODE_ENDPT,
       data=urlencode({
@@ -157,6 +183,22 @@ class GCSMS(object):
     return json.loads(urlopen(req).read().decode('utf8'))
 
   def obtain_refresh_token(self, dev_code):
+    """Get reusable refresh token after user grants access.
+
+    dev_code -- 'device_code', from return value of
+               obtain_user_code()
+
+    obtain_user_code() should be called first to direct the user to a
+    webpage that asks them to grant access. This method either throws
+    AuthPending exception while the user has yet to grant access, or it
+    returns -> {
+      "access_token" : "a29.AwSv0HELP2J4cCvFSj-8Gr6cgXU",
+      "token_type" : "Bearer",
+      "expires_in" : 3600,
+      "refresh_token" : "1/551G1yc8lY8CAR-Q"
+    }
+
+    """
     req = Request(
       _TOKEN_ENDPT,
       data=urlencode({
@@ -180,6 +222,17 @@ class GCSMS(object):
       raise GCSMSError('unexpected error')
 
   def obtain_access_token(self, refresh_token):
+    """Get access token that's needed for API calls to work.
+
+    refresh_token -- 'refresh_token' from return value of
+                     obtain_refresh_token().
+    Return: access_token as string
+
+    In order for other methods of this class to work, access_token
+    attribute of GCSMS instance must be set to return value of this
+    method.
+
+    """
     req = Request(
       _TOKEN_ENDPT,
       data=urlencode({
@@ -196,6 +249,13 @@ class GCSMS(object):
     return access_token
 
   def create(self, name):
+    """Create a new messaging list.
+
+    name -- human readable name
+
+    Return: the ID of new messaging list
+
+    """
     mlid = self._call_api(
       _url('cal') + '?fields=id',
       method='POST',
@@ -217,6 +277,15 @@ class GCSMS(object):
 
   @_ml_not_found
   def join(self, mlid, name = None):
+    """Join a messaging list.
+
+    mlid -- id
+    name -- name to assign to the messaging list
+
+    Return: @name if set, otherwise the name of the ML as set by its
+            owner
+
+    """
     self._call_api(
       _url('cl') + '?fields=id',
       method='POST',
@@ -249,14 +318,23 @@ class GCSMS(object):
 
   @_ml_not_found
   def leave(self, mlid):
+    """Leave a messaging list."""
     self._call_api(_url('cl-id') % _urlencval(mlid), method='DELETE')
 
   @_ml_not_found
   def destroy(self, mlid):
+    """Delete a messaging list you own."""
     self._call_api(_url('cal-id') % _urlencval(mlid), method='DELETE')
 
   @_ml_not_found
   def send(self, mlid, msg, delay = 0):
+    """Send a message to a messaging list.
+
+    mlid -- the ML's id
+    msg -- text message
+    delay -- number of seconds from now to schedule the message
+
+    """
 
     try:
       ts = datetime.utcfromtimestamp(
@@ -278,6 +356,8 @@ class GCSMS(object):
 
   @_ml_not_found
   def rename(self, mlid, newname):
+    """Rename a messaging list."""
+    # TODO rename the calendar as well if allowed
     self._call_api(
       _url('cl-id') % _urlencval(mlid),
       method='PATCH',
@@ -287,6 +367,17 @@ class GCSMS(object):
     )
 
   def mlists(self):
+    """Get the list of all messaging lists we have joined.
+
+    Return: [{
+      'id': '2342dffgsda@asdfa.com',
+      'name': 'humand-readable-name',
+      'access': <one of 'reader', 'writer', 'owner'>,
+      'muted': True/False
+    }, ...
+    ]
+
+    """
     items = self._call_api(
       _url('cl') +
       '?minAccessRole=reader&maxResults=1000000&showHidden=True'
@@ -308,6 +399,11 @@ class GCSMS(object):
 
   @_ml_not_found
   def mute(self, mlid, mute = True):
+    """Stop/Start receiving SMS from messaging list.
+
+    mute -- True for stopping, and False for starting
+
+    """
     self._call_api(
       _url('cl-id') % _urlencval(mlid),
       method='PATCH',
@@ -319,6 +415,16 @@ class GCSMS(object):
 
   @_ml_not_found
   def acl(self, mlid):
+    """Get the access control list.
+
+    Return: [{
+      'type': <one of 'domain', 'user', 'group'>,
+      'address': <email address or domain name>,
+      'access': <one of 'reader', 'writer', 'owner'>
+    }, ...
+    ]
+
+    """
     res = self._call_api(
       (_url('acl') % _urlencval(mlid))
         + '?items(id,role,scope)&maxResults=1000000'
@@ -332,6 +438,14 @@ class GCSMS(object):
 
   @_ml_not_found
   def aclset(self, mlid, address, addtype, access):
+    """Set access level for a particular address.
+
+    mlid -- messaging list id
+    address -- email address or domain name
+    addtype -- one of 'domain', 'user', 'group'
+    access -- one of 'reader', 'writer', 'owner'
+
+    """
     scope = {'type': addtype}
     if addtype != 'default':
       scope['value'] = address
@@ -342,6 +456,13 @@ class GCSMS(object):
     )
 
   def aclrm(self, mlid, address, addtype):
+    """Remove access leve for a particular address.
+
+    mlid -- messaging list id
+    address -- email address or domain name
+    addtype -- one of 'domain', 'user', 'group'
+
+    """
     acl = self.acl(mlid)
     for aclitem in acl:
       if (addtype == 'default' and aclitem['type'] == 'default') \
@@ -355,8 +476,9 @@ class GCSMS(object):
   def _call_api(self, url, method = 'GET', body = None):
     """Make a calendar API call.
 
-    urltype -- access URL type
-    body -- JSON request body
+    url -- end point of the API, use _url()
+    method -- HTTP method to use
+    body -- JSON body of the request
 
     """
 
@@ -381,12 +503,19 @@ class GCSMSError(Exception):
   pass
 
 class MultipleMatch(GCSMSError):
+  """A human readable messaging list name had multiple matches.
+
+  First argument is set to list of IDs of all messaging lists matched.
+  
+  """
   pass
 
 class AuthPending(GCSMSError):
+  """Waiting for user to grant access to the API."""
   pass
 
 class MessagingListNotFound(GCSMSError):
+  """Messaging list not found."""
   pass
 
 def _cmd_create(args, cfg, inst):
