@@ -299,7 +299,7 @@ class GCSMS(object):
         (_url('cl-id') % _urlencval(mlid)) + '?fields=summary'
       )
       if cl['summary'].startswith(_MLNAME_PREFIX):
-        overridename = cl['summary'][len(_MLNAME_PREFIX):]
+        overridename = cl['summary']
       else:
         overridename = _MLNAME_PREFIX + cl['summary']
     
