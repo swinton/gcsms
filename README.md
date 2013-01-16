@@ -180,4 +180,11 @@ Notes:
   in your list.
 * You can import `gcsms` as a python module and use `GCSMS` class to do
   anything you can do with the command line program.
-* More to go here ...
+* If you have a Google Apps for Business account, in order to be able to
+  allow users outside of your domain to receive SMS or send SMS to
+  messaging lists you create, you must do the following:
+  - Go to Google Apps cpanel (https://www.google.com/a/cpanel/name.com)
+  - Go to 'Settings' tab > 'Calendar' settings
+  - Under 'External Sharing options for primary calendars', select any
+    option other than the first one ('Only free/busy information')
+    depending on the extent you wish to give outsiders access.
