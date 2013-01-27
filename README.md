@@ -188,3 +188,39 @@ Notes:
   - Under 'External Sharing options for primary calendars', select any
     option other than the first one ('Only free/busy information')
     depending on the extent you wish to give outsiders access.
+
+Contributing
+============
+
+_contribution instructions originally written by Linus Torvalds_
+
+If you want to contribute code, please either send signed-off patches or
+a pull request with signed-off commits. If you don't sign off on them,
+we will not accept them. This means adding a line that says
+"Signed-off-by: Name <email>" at the end of each commit, indicating that
+you wrote the code and have the right to pass it on as an open source
+patch.
+
+See: http://gerrit.googlecode.com/svn/documentation/2.0/user-signedoffby.html
+
+Also, please write good git commit messages. A good commit message
+looks like this:
+
+    Header line: explaining the commit in one line
+    
+    Body of commit message is a few lines of text, explaining things
+    in more detail, possibly giving some background about the issue
+    being fixed, etc etc.
+    
+    The body of the commit message can be several paragraphs, and
+    please do proper word-wrap and keep columns shorter than about
+    74 characters or so. That way "git log" will show things
+    nicely even when it's indented.
+    
+    Reported-by: whoever-reported-it
+    Signed-off-by: Your Name <youremail@yourhost.com>
+
+where that header line really should be meaningful, and really should be
+just one line.  That header line is what is shown by tools like gitk and
+shortlog, and should summarize the change in one readable line of text,
+independently of the longer explanation.
