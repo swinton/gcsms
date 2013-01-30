@@ -269,7 +269,7 @@ class GCSMS(object):
       body={
         'hidden': True,
         'selected': False,
-        'defaultReminders': [],
+        'defaultReminders': [{'method': 'sms', 'minutes': 1}],
         'summaryOverride': _MLNAME_PREFIX + name
       }
     )
@@ -302,7 +302,7 @@ class GCSMS(object):
         overridename = cl['summary']
       else:
         overridename = _MLNAME_PREFIX + cl['summary']
-    
+
     self._call_api(
       (_url('cl-id') % _urlencval(mlid)) + '?fields=id',
       method='PUT',
@@ -506,7 +506,7 @@ class MultipleMatch(GCSMSError):
   """A human readable messaging list name had multiple matches.
 
   First argument is set to list of IDs of all messaging lists matched.
-  
+
   """
   pass
 
@@ -848,7 +848,7 @@ def main():
         raise
     except MessagingListNotFound as e:
       raise GCSMSError('messaging list not found')
-    
+
   except MultipleMatch as e:
     print('%s: multiple messaging lists matched - use id' % _PROGNAME,
           file=sys.stderr)
